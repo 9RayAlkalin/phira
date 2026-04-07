@@ -8,7 +8,8 @@ use super::{
 use crate::{
     charts_view::NEED_UPDATE,
     client::{
-        basic_client_builder, recv_raw, Chart, ChartRef, Client, Collection, CollectionUpdate, Permissions, Ptr, Record, User, UserManager, CLIENT_TOKEN,
+        basic_client_builder, recv_raw, Chart, ChartRef, Client, Collection, CollectionUpdate, Permissions, Ptr, Record, User, UserManager,
+        CLIENT_TOKEN,
     },
     data::{BriefChartInfo, LocalChart},
     dir, get_data, get_data_mut,
@@ -30,6 +31,7 @@ use core::f32;
 use futures_util::StreamExt;
 use inputbox::{InputBox, InputMode};
 use macroquad::prelude::*;
+use once_cell::sync::Lazy;
 use phira_mp_common::{ClientCommand, CompactPos, JudgeEvent, TouchFrame};
 use prpr::{
     config::Mods,
@@ -49,7 +51,6 @@ use prpr::{
     time::TimeManager,
     ui::{button_hit, render_chart_info, ChartInfoEdit, DRectButton, Dialog, LoadingParams, LongTouchState, RectButton, Scroll, Ui, UI_AUDIO},
 };
-use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::Method;
 use sanitize_filename::sanitize;
@@ -60,7 +61,7 @@ use sha2::{Digest, Sha256};
 use std::{
     any::Any,
     borrow::Cow,
-    collections::{hash_map, HashMap, VecDeque},
+    collections::{hash_map, BTreeMap, HashMap, VecDeque},
     fs::File,
     io::{BufWriter, Cursor, Seek, Write},
     path::Path,
@@ -94,15 +95,27 @@ pub static RECORD_ID: AtomicI32 = AtomicI32::new(-1);
 static MENTION_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"@([^\s#@(（]+)(?:#(\d+))?(?:\s*[（(]([^)）]+)[)）])?").unwrap());
 
 /// Parse all `@name#id` resolved collaborator mentions and return `(id, role)` pairs.
-fn parse_collaborator_ids(intro: &str) -> Vec<(i32, Option<String>)> {
-    MENTION_RE
-        .captures_iter(intro)
-        .filter_map(|cap| {
-            let id: i32 = cap.get(2)?.as_str().parse().ok()?;
-            let role = cap.get(3).map(|m| m.as_str().to_owned());
-            Some((id, role))
-        })
-        .collect()
+fn parse_collaborators(intro: &str) -> BTreeMap<i32, Option<String>> {
+    use std::collections::btree_map::Entry;
+
+    let mut result = BTreeMap::new();
+    for (id, role) in MENTION_RE.captures_iter(intro).filter_map(|cap| {
+        let id: i32 = cap.get(2)?.as_str().parse().ok()?;
+        let role = cap.get(3).map(|m| m.as_str().to_owned());
+        Some((id, role))
+    }) {
+        match result.entry(id) {
+            Entry::Vacant(e) => {
+                e.insert(role);
+            }
+            Entry::Occupied(mut e) => {
+                if e.get().is_none() && role.is_some() {
+                    e.insert(role);
+                }
+            }
+        }
+    }
+    result
 }
 
 /// Find all unresolved `@name` or `@name (role)` mentions (those missing `#id`).
@@ -395,7 +408,7 @@ pub struct SongScene {
 
     confirm_cancel_edit: Arc<AtomicBool>,
 
-    collaborators: Vec<(i32, Option<String>)>,
+    collaborators: BTreeMap<i32, Option<String>>,
     autocomplete_task: Option<Task<Result<String>>>,
 
     export_task: Option<mpsc::Receiver<Result<()>>>,
@@ -585,7 +598,7 @@ impl SongScene {
 
             confirm_cancel_edit: Arc::default(),
 
-            collaborators: Vec::new(),
+            collaborators: BTreeMap::new(),
             autocomplete_task: None,
 
             export_task: None,
@@ -1425,7 +1438,11 @@ impl SongScene {
         if unresolved.is_empty() {
             self.save_edit();
         } else {
-            let mentions_list = unresolved.iter().map(|(start, end, _)| &intro[*start..*end]).collect::<Vec<_>>().join(", ");
+            let mentions_list = unresolved
+                .iter()
+                .map(|(start, end, _)| &intro[*start..*end])
+                .collect::<Vec<_>>()
+                .join(", ");
             let content = tl!("collab-autocomplete-content", "mentions" => mentions_list);
             Dialog::plain(tl!("collab-autocomplete-title"), content)
                 .buttons(vec![ttl!("cancel").into_owned(), ttl!("confirm").into_owned()])
@@ -1809,8 +1826,8 @@ impl Scene for SongScene {
             if let Some(uploader) = &self.info.uploader {
                 UserManager::request(uploader.id);
             }
-            self.collaborators = parse_collaborator_ids(&self.info.intro);
-            for (id, _) in &self.collaborators {
+            self.collaborators = parse_collaborators(&self.info.intro);
+            for id in self.collaborators.keys() {
                 UserManager::request(*id);
             }
             self.side_content = SideContent::Info;
