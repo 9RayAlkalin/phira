@@ -217,7 +217,7 @@ impl LocalCollection {
                 Some(file) => CollectionCover::Online(file.clone()),
             },
             name: col.name.clone(),
-            description: self.description.clone(),
+            description: col.description.clone(),
             remote_updated: Some(col.updated),
             charts: col.charts.iter().cloned().map(Into::into).collect(),
             public: col.public,
