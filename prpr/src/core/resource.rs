@@ -82,18 +82,34 @@ pub struct ResPackInfo {
     pub hold_compact: bool,
 
     #[serde(default = "default_perfect")]
-    pub color_perfect: u32,
+    color_perfect: u32,
     #[serde(default = "default_good")]
-    pub color_good: u32,
+    color_good: u32,
 
     #[serde(default)]
     pub description: String,
 }
 
+fn parse_color_guess_alpha(c: u32) -> Color {
+    if c > 0xffffff {
+        Color::from_hex_argb(c)
+    } else {
+        Color::from_hex_rgb(c)
+    }
+}
+
 impl ResPackInfo {
+    pub fn color_perfect(&self) -> Color {
+        parse_color_guess_alpha(self.color_perfect)
+    }
+
+    pub fn color_good(&self) -> Color {
+        parse_color_guess_alpha(self.color_good)
+    }
+
     pub fn fx_perfect(&self) -> Color {
         if self.hit_fx_tinted {
-            Color::from_hex_argb(self.color_perfect)
+            self.color_perfect()
         } else {
             WHITE
         }
@@ -101,7 +117,7 @@ impl ResPackInfo {
 
     pub fn fx_good(&self) -> Color {
         if self.hit_fx_tinted {
-            Color::from_hex_argb(self.color_good)
+            self.color_good()
         } else {
             WHITE
         }
