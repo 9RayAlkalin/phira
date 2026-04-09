@@ -278,11 +278,10 @@ impl ChartsView {
                             },
                             Arc::clone(&self.icons),
                             self.rank_icons.clone(),
-                            get_data()
-                                .charts
-                                .iter()
-                                .find(|it| Some(&it.local_path) == download_path.as_ref())
-                                .map(|it| it.mods)
+                            chart
+                                .local_path
+                                .as_ref()
+                                .and_then(|path| get_data().charts.iter().find(|it| &it.local_path == path).map(|it| it.mods))
                                 .unwrap_or_default(),
                         );
                         self.transit = Some(TransitState {
